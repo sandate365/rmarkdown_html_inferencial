@@ -1,0 +1,664 @@
+---
+title: "Informe 2 - Estadística Inferencial"
+author: "Carlos Santana Flores"
+output:
+  html_document:
+    toc: false
+    toc_depth: 6
+    toc_float: true
+    smooth_scroll: true
+    theme: cerulean
+    highlight: kate
+    df_print: paged
+    code_folding: show
+Lang: "es-ES"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r MODELO, include=TRUE, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE, results='markup'}
+## chunk para usar 
+```
+
+# Gasto Público por Estudiante en Educación Básica: Un Estudio Regional en el Perú (2009-2022)
+
+<div style="text-align: justify;">
+
+El presente informe estadístico tiene como objetivo **analizar el gasto anual en educación básica** –que abarca los niveles de inicial, primaria y secundaria– que el gobierno central de la República del Perú ha venido asumiendo a lo largo del período 2009-2022. Este análisis se fundamenta en una base de datos organizada por departamentos del país y se sustenta en información proveniente del Ministerio de Economía y Finanzas (MEF), con el respaldo metodológico y las cifras recopiladas por el Instituto Nacional de Estadística e Informática [INEI - Publicaciones](https://www.inei.gob.pe/estadisticas/indice-tematico/sociales/). De esta manera, se busca ofrecer una visión integral de la evolución del gasto público por estudiante de educación básica, identificando tendencias, brechas y posibles factores que hayan influido en su comportamiento a lo largo del tiempo.
+
+</div>
+
+
+<div style="text-align: center;">
+  <img src="informe_upc.png" alt="T" style="max-width: 500px;">
+</div>
+
+
+<div style="text-align: justify;">
+
+La elección del período 2009-2022 permite evaluar dinámicas de corto y mediano plazo, al tiempo que la desagregación por departamentos posibilita examinar las disparidades regionales existentes. La información obtenida, producto del procesamiento y sistematización de datos oficiales, facilitará no solo la comprensión del panorama actual del financiamiento educativo, sino también la formulación de recomendaciones y lineamientos para la toma de decisiones informadas en el sector. Así, este estudio busca contribuir al debate sobre la inversión en educación, en aras de optimizar el uso de los recursos públicos y promover una enseñanza de mayor calidad en el territorio nacional.
+
+</div>
+
+### Información recopilada
+
+<div style="text-align: justify;">
+La base de datos se obtuvo del portal de publicaciones de la página web de la INEI el formato presentado es un *data panel* con extensión EXCEL que consta de variables como los departamentos del Perú, nivel educativo y el gasto anual que incurre le gobierno central por el año escolar de un estudiante. Por cuestiones académicas se simularon tres variables (Infraestructura, Gasto en tecnología y Relación alumno docente) que se encuentran en la base de datos.
+
+</div>
+
+### Datos
+
+```{r DATOS, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+library(readxl)
+datos <- read_excel("Datos gasto en educación inf.xlsx")
+# head(datos)
+
+# ----------------------- DATOS PARA PH MEDIAS PAREADAS-------------------------
+
+library(tidyverse)
+datos_2022 <- datos %>% 
+              select(Departamento, `Nivel educativo`, `2022`) %>% 
+              rename(Gasto = `2022`)
+# head(datos_2022)
+
+datos_2020 <- datos %>% 
+              select(Departamento, `Nivel educativo`, `2020`) %>% 
+              rename(Gasto = `2020`)
+# head(datos_2020)
+
+# -------------------------- DATOS PARA PH MEDIAS ------------------------------
+
+datos_2022_inicial <- datos_2022 %>% 
+                      filter(`Nivel educativo` == "Inicial") %>% 
+                      rename(Gasto_2022 = Gasto)
+# head(datos_2022_inicial)
+
+
+datos_2022_primaria <- datos_2022 %>% 
+                       filter(`Nivel educativo` == "Primaria") %>% 
+                       rename(Gasto_2022 = Gasto)
+# head(datos_2022_primaria)
+
+
+datos_2022_secundaria <- datos_2022 %>% 
+                         filter(`Nivel educativo` == "Secundaria") %>% 
+                         rename(Gasto_2022 = Gasto)
+# head(datos_2022_secundaria)
+
+# ----------------------- DATOS PARA REGRESION ---------------------------------
+set.seed(123)
+datos_2022_secundaria_reg <- datos_2022_secundaria %>% 
+            mutate (
+                    infraestructura = runif( n(), min = 1, max = 10),
+                    gasto_tecnologia = Gasto_2022*runif( n(), min = 0.05 , max = 0.25 ),
+                    relacion_alumno_docente = runif( n(), min = 10, max = 40)
+                   ) %>% 
+            rename (nivel_educativo = `Nivel educativo`)
+
+head(datos_2022_secundaria_reg)
+
+cat("<br>")  # hace salto en linea (una vez "<br>" ) Se necesita en el chunk: results='asis'
+
+```
+
+### Análisis descriptivo
+
+```{r DEsCRIPTIVOS, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+library(psych)
+library(knitr)
+library(kableExtra)
+
+descrip_2022 <- describeBy(datos_2022$Gasto, datos$`Nivel educativo`, mat = TRUE)
+
+descrip_2022_df <- as.data.frame(descrip_2022) %>% 
+                   select(group1, n, mean, sd, median, min, max, range, skew, kurtosis) %>% 
+                   rename(`Nivel educativo`= group1,
+                          Media = mean,
+                          `Desviación estándar` = sd,
+                          Mediana = median,
+                          Mínimo = min,
+                          Máximo = max,
+                          Rango = range,
+                          `Coef Asimetría` = skew,
+                          Curtosis = kurtosis) %>% 
+                   mutate(across(where(is.numeric), ~ round(., 2))) # valores a dos decimales
+
+descrip_2022_df %>%
+  kable(caption = "Medidas descriptivas del gasto anual por estudiante según nivel educativo", row.names = FALSE) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+cat("<br>") 
+```
+
+### Prueba de hipótesis para una media
+
+El responsable de la Dirección de Planificación Presupuestaría para la Educación Básica del MEF desea saber si el gasto promedio anual de un estudiante de educación inicial en el Perú supera los 3300 soles. 
+
+* Planteamiento de hipótesis
+
+Ho: Promedio < = 3300
+
+H1: Promedio  >  3300
+
+* Nivel de sinificancia 
+
+alfa = 0.05
+
+* Estadístico de prueba: 
+
+t = 2.22
+
+* Decisión estadística:
+
+p-value = 0.018 < 0.05 = alfa; Se rechaza Ho
+
+* Conclusión estadística:
+
+A un nivel de significancia de 5% se puede afirmar que el gasto promedio anual de un estudiante de educación inicial en el Perú supera los 3300 soles. 
+
+```{r IC_media, include=TRUE, echo=FALSE, eval=FALSE, message=FALSE, warning=FALSE, results='markup'}
+
+library(broom)
+
+resultados_IC <- tidy(
+              t.test(datos_2022$Gasto, mu = 0)
+                   )
+#print(resultados_IC)
+
+# -----------------------------------------------------------------------------
+
+resultados_IC %>%
+  kable(
+    caption = "Resultados de la prueba t para el análisis económico",
+    col.names = c("Media muestral", "Estadístico t", "p-valor", "G L", 
+                   "IC inferior", "IC superior", "Método", "Tipo prueba")
+       ) %>%
+  
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+
+```{r PH_media, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+library(broom)
+
+resultados_PH_1_media <- tidy(
+                              t.test(x = datos_2022_inicial$Gasto_2022, y = NULL, alternative = "greater", mu = 3300, 
+                              paired = FALSE, var.equal = FALSE, conf.level = 0.95)
+                             )
+#print(resultados_PH_1_media)
+
+# -----------------------------------------------------------------------------
+
+resultados_PH_1_media %>%
+  kable(
+    caption = "Resultados de la prueba t para una media",
+    col.names = c("Media muestral", "Estadístico t", "p-valor", "gl", 
+                   "IC inferior", "IC superior", "Método", "Tipo prueba")
+       ) %>%
+  
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+cat("<br>") 
+```
+
+### Prueba de hipótesis para la diferencia de medias independientes
+
+El responsable de la Dirección de Planificación Presupuestaría para Educación Básica del MEF desea saber si el gasto promedio anual de un estudiante de educación primaria en el Perú supera al gasto promedio anual de un estudiante de educación inicial. Asumiendo normalidad de las variables y varianzas homogéneas.
+
+* Planteamiento de hipótesis
+
+Ho: Promedio_primaria < = Promedio_primaria
+
+H1: Promedio_primaria  >  Promedio_primaria
+
+* Nivel de sinificancia 
+
+alfa = 0.05
+
+* Estadístico de prueba: 
+
+t = 0.609
+
+* Decisión estadística:
+
+p-value = 0.273 > 0.05 = alfa; No se rechaza Ho
+
+* Conclusión estadística:
+
+A un nivel de significancia de 5% no se puede afirmar que el gasto promedio anual de un estudiante de educación primaria en el Perú supera al gasto promedio anual de un estudiante de educación inicial
+
+
+```{r PH_media_2_indep, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+library(broom)
+
+resultados_PH_2_media_indep <- tidy(
+                                     t.test(x = datos_2022_primaria$Gasto_2022, y = datos_2022_inicial$Gasto_2022, 
+                                            alternative = "greater", mu = 0, 
+                                            paired = FALSE, var.equal = TRUE, conf.level = 0.95)
+                                    )
+#print(resultados_PH_2_media_indep)
+
+# -----------------------------------------------------------------------------
+
+resultados_PH_2_media_indep  %>%
+  kable(
+        caption = "Resultados de la prueba t para la diferencia de medias",
+        col.names = c("Media difer", "Media muestral 1", "Media muestral 2", "Estadístico t", "p-valor",
+                   "gl", "IC inferior", "IC superior", "Método", "Tipo prueba")
+        ) %>%
+  
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+cat("<br>")
+```
+
+### Prueba de hipótesis para la diferencia de medias muestras relacionadas
+
+El responsable de la Dirección de Planificación Presupuestaría para Educación Básica del MEF desea saber si el gasto promedio anual de un estudiante de educación básica en el Perú para el año 2022 supera al gasto promedio anual de un estudiante de educación básica en el 2020. 
+
+* Planteamiento de hipótesis
+
+Ho: Promedio_2022 < = Promedio_2020
+
+H1: Promedio_2022  >  Promedio_2020
+
+* Nivel de sinificancia 
+
+alfa = 0.05
+
+* Estadístico de prueba: 
+
+t = 7.20
+
+* Decisión estadística:
+
+p-value = 0.00 < 0.05 = alfa; Se rechaza Ho
+
+* Conclusión estadística:
+
+A un nivel de significancia de 5% no se puede afirmar que el gasto promedio anual de un estudiante de educación básica en el Perú para el año 2022 supera al gasto promedio anual de un estudiante de educación básica en el 2020.
+
+```{r PH_media_2_pareado, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+library(broom)
+
+resultados_PH_2_media_pareado <- tidy(
+                                     t.test(x = datos_2022$Gasto, y = datos_2020$Gasto, 
+                                            alternative = "greater", mu = 0, 
+                                            paired = TRUE, var.equal = FALSE, conf.level = 0.95)
+                                    )
+#print(resultados_PH_2_media_indep)
+
+# -----------------------------------------------------------------------------
+
+resultados_PH_2_media_pareado  %>%
+  kable(
+        caption = "Resultados de la prueba t para la diferencia de medias de muestras relacionadas",
+        col.names = c("Media difer", "Estadístico t", "p-valor",
+                      "gl", "IC inferior", "IC superior", "Método", "Tipo prueba")
+        ) %>%
+  
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+cat("<br>")
+```
+
+### Prueba de hipótesis para una proporción
+
+El responsable de la Dirección de Planificación Presupuestaría para la Educación Básica del MEF desea saber si el porcentaje de estudiantes que culminan satisfactoriamente el año escolar supera 80%. 
+
+* Planteamiento de hipótesis
+
+Ho: Proporción < = 0.80
+
+H1: Proporción  >  0.80
+
+* Nivel de sinificancia 
+
+alfa = 0.05
+
+* Estadístico de prueba: 
+
+Z = 1.08
+
+* Decisión estadística:
+
+p-value = 0.149 > 0.05 = alfa; No se rechaza Ho
+
+* Conclusión estadística:
+
+A un nivel de significancia de 5% no se puede afirmar que el porcentaje de estudiantes que culminan satisfactoriamente el año escolar supera 80%. 
+
+```{r PH_1_prop, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+x <- 80
+n <- 100
+p0 <- 0.75
+
+resultados_PH_1_prop <- tidy(
+                             prop.test(x, n, p = p0, alternative = "greater", conf.level = 0.95)
+                             )
+# print(resultados_PH_1_prop)
+
+# -----------------------------------------------------------------------------
+
+resultados_PH_1_prop  %>%
+  kable(
+       caption = "Resultados de la prueba t para el análisis económico",
+       col.names = c("Proporción muestral", "Estadístico Z", "p-valor",
+                      "gl", "IC inferior", "IC superior", "Método", "Tipo")
+       ) %>%
+  
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+cat("<br>")
+```
+
+### Análisis de varianza - DCA
+
+El responsable de la Dirección de Planificación Presupuestaría para Educación Básica del MEF desea saber si existe diferencia significativa entre el gasto promedio anual en la educación de un estudiante por nivel educativo.
+
+* Planteamiento de hipótesis
+
+Ho: Promedio_inicial = Promedio_primaria = Promedio_secundaria
+
+H1: Al menos uno de los promedios es diferente a los demás.
+
+* Nivel de sinificancia 
+
+alfa = 0.05
+
+* Estadístico de prueba: 
+
+F = 12.4
+
+* Decisión estadística:
+
+p-value = 0.00002 < 0.05 = alfa; Se rechaza Ho
+
+* Conclusión estadística:
+
+A un nivel de significancia de 5% se puede afirmar que existe diferencia significativa entre el gasto promedio anual en la educación de un estudiante por nivel educativo.
+
+
+```{r ANOVA, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+# ANOVA con aov()
+#modelo <- aov(Gasto ~ `Nivel educativo`, data = datos_2022)
+#summary(modelo)
+
+resultados_anova <- tidy(
+                        aov(Gasto ~ `Nivel educativo`, data = datos_2022)
+                        )
+#print(resultados_anova)
+
+# -----------------------------------------------------------------------------
+
+resultados_anova  %>%
+ kable(
+       caption = "Tabla ANOVA",
+       col.names = c("Efecto", "gl", "Suma cuadrados",
+                     "Cuadrado medio", "Estadístico F", "p-value")
+       ) %>%
+  
+ kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+
+```{r tukey, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+# ANOVA con aov()
+datos_2022 <- as.data.frame(datos_2022)
+
+datos_2022_tukey <- datos_2022 %>% 
+                    rename(Nivel_educativo = `Nivel educativo`)
+
+datos_2022_tukey$Nivel_educativo <- as.factor(datos_2022_tukey$Nivel_educativo)
+
+datos_2022_tukey <- na.omit(datos_2022_tukey)
+
+modelo <- aov(Gasto ~ Nivel_educativo, data = datos_2022_tukey)
+#summary(modelo)
+
+# ---------------------------------------------------------------------------
+
+#resultados_tukey <- TukeyHSD(modelo)
+
+
+resultados_tukey <- tidy(
+                        TukeyHSD(modelo)
+                        )
+# print(resultados_tukey)
+
+# -----------------------------------------------------------------------------
+
+resultados_tukey  %>%
+ kable(
+       caption = "Comparaciones múltiples de Tukey",
+       col.names = c("Factor", "Contraste", "Valores nulos",
+                    "Estimación", "Límite Inf", "Límite Sup", "p-value Adj")
+       ) %>%
+  
+ kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+Se concluye a partir de la tabla de comparaciones múltiples de Tukey que el mayor gasto promedio se da para los estudiantes de educación secundaria.
+
+```{r tukey_plot, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='markup'}
+
+tukey_plot <- TukeyHSD(modelo)
+plot(tukey_plot)
+
+```
+
+##### Supuestos
+
+<b> Normalidad de residuos </b>
+
+Debido a que el p-value (0.003779) es menor al nivel de significancia (0.05) podemos concluir que no se cumple el supuesto de normalidad de los residuos.
+
+```{r Normalidad, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='markup'}
+
+residuo_Shapiro <- residuals(modelo)
+shapiro.test(residuo_Shapiro)
+
+```
+
+
+<b> Homogeneidad de varianzas </b>
+
+Debido a que el p-value (0.003535) es menor al nivel de significancia (0.05) podemos concluir que no se cumple el supuesto de homoneidad de varianzas
+
+```{r Homo_Var, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+test_var <- bartlett.test(Gasto ~ `Nivel educativo`, data = datos_2022)
+
+print(test_var)
+
+cat("<br>")
+```
+
+
+#### Pruebas Chi-cuadrado
+
+El responsable de la Dirección de Planificación Presupuestaría para Educación Básica del MEF desea saber si existe alguna relación entre el sexo del estudiante y el nivel educativo
+
+* Planteamiento de hipótesis
+
+Ho: No existe alguna relación entre el sexo del estudiante y el nivel educativo
+
+H1: Existe alguna relación entre el sexo del estudiante y el nivel educativo
+
+* Nivel de sinificancia 
+
+alfa = 0.05
+
+* Estadístico de prueba: 
+
+Chi2 = 0.1616
+
+* Decisión estadística:
+
+p-value = 0.9224 > 0.05 = alfa; No se rechaza Ho
+
+* Conclusión estadística:
+
+A un nivel de significancia de 5% no se puede afirmar que existe alguna relación entre el sexo del estudiante y el nivel educativo
+
+```{r Chi_Cuadrado, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+# Crear el vector con las frecuencias absolutas
+frecuencias <- c(12, 14, 15, 16, 17, 22)
+
+# Crear la tabla de doble entrada como una matriz
+tabla <- matrix(
+  data = frecuencias,
+  nrow = 3,
+  ncol = 2,
+  byrow = TRUE,
+  dimnames = list(
+    "Nivel Educativo" = c("Inicial", "Primaria", "Secundaria"),
+    "Sexo" = c("Masculino", "Femenino")
+  )
+)
+#print(tabla)
+
+# Calcular totales por filas y columnas
+totales_filas <- rowSums(tabla)  # Totales por nivel educativo
+totales_columnas <- colSums(tabla)  # Totales por sexo
+
+# Agregar totales como una nueva fila y columna
+tabla_con_totales <- rbind(tabla, "Total" = totales_columnas)  # Agregar fila de totales
+tabla_con_totales <- cbind(tabla_con_totales, "Total" = c(totales_filas, sum(totales_filas)))  # Agregar columna de totales
+
+# Mostrar la tabla con totales
+#print(tabla_con_totales)
+
+knitr::kable(
+             tabla_con_totales,
+             caption = "Distribución de estudiantes de educación según nivel educativo y sexo"
+            ) %>% 
+  kableExtra::column_spec(1, width = "2cm") %>%  # Ajustar ancho de la primera columna
+  kableExtra::column_spec(2, width = "2cm") %>% # Ajustar ancho de la segunda columna
+  kableExtra::column_spec(3, width = "2cm") %>% 
+  kableExtra::column_spec(4, width = "2cm") 
+
+# GRÁFICO DE BARRAS
+# -----------------
+
+# Convertir la tabla de porcentajes por columna a un data frame
+tabla_df <- as.data.frame(as.table(tabla))
+
+# Cambiar los nombres de las columnas para mayor claridad
+colnames(tabla_df) <- c("Nivel Educativo", "Sexo", "Porcentaje")
+
+# Filtrar para excluir la columna "Total"
+#tabla_por_fila_df <- tabla_por_fila_df[tabla_por_fila_df$Sexo != "Total", ]
+
+cat("<br>")  # hace salto en linea (2 veces) Se necesita en el chunk: results='asis'
+
+#### Crear el gráfico de barras
+
+ggplot(tabla_df, aes(x = `Nivel Educativo`, y = Porcentaje, fill = Sexo)) +
+  geom_bar(stat = "identity", position = "dodge") +  # Barras lado a lado
+  geom_text(aes(label = round(Porcentaje, 1)),      # Etiquetas de valores porcentuales
+            position = position_dodge(width = 0.9), # Ajustar posición para barras lado a lado
+            vjust = -0.5) +                        # Colocar etiquetas sobre las barras
+  labs(
+       title = "Distribución de estudiantes de educación básica según nivel educativo y sexo",
+       x = "Nivel educativo",
+       y = "Número de estudiantes"
+      ) +
+  theme_minimal() +  # Tema limpio
+  scale_fill_brewer(palette = "Blues")  # Paleta de colores amigables
+
+```
+
+```{r chi_cuadrado_tabla, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='asis'}
+
+chisq.test(tabla, correct = FALSE)
+
+cat("<br>") 
+```
+
+### Regresión lineal
+
+El responsable de la Dirección de Planificación Presupuestaría para Educación Básica del MEF desea realizar un análisis de regresión y correlación entre la variable gasto anual en tecnología por estudiantes en función del gasto anual en educación.
+
+<b> Diagrama de dispersión </b>
+
+```{r diagrama_reg, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='markup'}
+
+
+ggplot(datos_2022_secundaria_reg, aes(x = Gasto_2022, y = gasto_tecnologia)) +
+  geom_point(color = "blue", size = 3, alpha = 0.7) +  # Transparencia con alpha
+  geom_smooth(method = "lm", color = "red", linetype = "dashed", size = 1) +  # Línea de regresión personalizada
+  labs(
+    title = "Relación entre Gasto por Alumno y Gasto tecnología",
+    x = "Gasto por Alumno",
+    y = "Gasto tecnología",
+    caption = "Fuente: Datos simulados"
+  ) +
+  theme_bw() +  # Tema blanco y negro
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),  # Centrar título
+    axis.title = element_text(size = 12),  # Tamaño de los ejes
+    panel.grid.minor = element_blank()  # Eliminar cuadrícula menor
+  )
+
+```
+
+<b> Resumen del modelo </b>
+
+```{r ajuste_reg, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='markup'}
+
+ajuste_reg <- lm( gasto_tecnologia ~ Gasto_2022, datos_2022_secundaria_reg  )
+              summary(ajuste_reg)
+
+```
+
+** Podemos concluir que el modelo de regresión lineal es válido (p-value = 0.0117 < 0.05 = alfa)
+
+** Por cada sol de gasto anual en educación el gasto en tecnología se incrementa en 0.105 soles
+
+** La variabilidad de gasto en tecnología es explicada en un 23.67% por el modelo de regresión lineal
+
+
+##### Supuestos
+
+<b> Normalidad de residuos  </b>
+
+```{r normalidad_reg, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='markup'}
+
+# Residuales vs valores ajustados
+plot(ajuste_reg, which = 1)
+
+# Normalidad de los residuos
+plot(ajuste_reg, which = 2)
+shapiro.test(residuals(ajuste_reg))  # Prueba formal de normalidad
+
+```
+
+Se concluye que los residuos se distribuyen normalmente (p-value = 0.1721 > 0.05 = alfa)
+
+<b> Homocedasticidad de residuos  </b>
+
+```{r homocedasticidad_reg, include=TRUE, echo=FALSE, eval=TRUE, message=FALSE, warning=FALSE, results='markup'}
+
+# Homoscedasticidad
+library(lmtest)
+bptest(ajuste_reg)  # Prueba de Breusch-Pagan para heterocedasticidad
+
+```
+
+Se concluye que los residuos no presentan homocedasticidad (p-value = 0.01251 < 0.05 = alfa)
